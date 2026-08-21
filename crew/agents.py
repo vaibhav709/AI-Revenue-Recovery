@@ -1,12 +1,8 @@
-from pathlib import Path
-
-from dotenv import load_dotenv
 from crewai import Agent, LLM
 
 
-# Load crew/.env
-env_path = Path(__file__).parent / ".env"
-load_dotenv(env_path)
+# Credentials are supplied by the runtime environment. This module never
+# reads repository-local .env files.
 
 
 llm = LLM(
