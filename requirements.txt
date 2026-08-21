@@ -34,6 +34,7 @@ durationpy==0.10
 et_xmlfile==2.0.0
 executing==2.2.1
 filelock==3.32.3
+fastapi==0.141.1
 flatbuffers==25.12.19
 fonttools==4.63.0
 frozenlist==1.8.0
