@@ -55,3 +55,25 @@ strategy_agent = Agent(
 
     verbose=True
 )
+
+recovery_agent = Agent(
+    role="Customer Recovery Specialist",
+
+    goal=(
+        "Turn the recommended recovery strategy into a clear, "
+        "customer-friendly and actionable recovery plan."
+    ),
+
+    backstory=(
+        "You are a customer recovery specialist responsible for "
+        "executing payment recovery strategies. You create "
+        "appropriate customer communications and actions based "
+        "on risk level and the approved recovery strategy. "
+        "Your communication should be professional, respectful, "
+        "and proportional to the customer's risk."
+    ),
+
+    llm=llm,
+
+    verbose=True
+)
