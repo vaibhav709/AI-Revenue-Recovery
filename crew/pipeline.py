@@ -12,6 +12,10 @@ from crew.rules.recovery_schema import FinalRecoveryPlan, validate_final_plan
 from ml.predict import predict_payment_failure
 
 
+class CrewAIWorkflowError(RuntimeError):
+    """Raised when the CrewAI workflow cannot produce a response."""
+
+
 def _build_customer_context(risk: Any) -> dict[str, Any]:
     """Prepare the ML-owned data supplied to the CrewAI workflow."""
     return {
@@ -77,19 +81,22 @@ def run_recovery_pipeline(
         num_delayed_payments=risk.num_delayed_payments,
     )
 
-    llm_output = _run_crewai_workflow(
-        {
-            "customer_data": customer_context,
-            "recovery_policy": recovery_policy.model_dump(),
-            "recovery_priority": recovery_policy.priority,
-            "recovery_strategy": recovery_policy.strategy,
-            "communication_channel": recovery_policy.communication_channel,
-            "follow_up_days": recovery_policy.follow_up_days,
-            "escalation_candidate": recovery_policy.escalation_candidate,
-            # The task context supplies the actual preceding task output.
-            "risk_analysis": "See the Risk Analyst task output in the task context.",
-        }
-    )
+    try:
+        llm_output = _run_crewai_workflow(
+            {
+                "customer_data": customer_context,
+                "recovery_policy": recovery_policy.model_dump(),
+                "recovery_priority": recovery_policy.priority,
+                "recovery_strategy": recovery_policy.strategy,
+                "communication_channel": recovery_policy.communication_channel,
+                "follow_up_days": recovery_policy.follow_up_days,
+                "escalation_candidate": recovery_policy.escalation_candidate,
+                # The task context supplies the actual preceding task output.
+                "risk_analysis": "See the Risk Analyst task output in the task context.",
+            }
+        )
+    except Exception as exc:
+        raise CrewAIWorkflowError("CrewAI workflow failed.") from exc
     llm_data = json.loads(llm_output)
 
     # Do not merge llm_data here: that would allow an LLM-supplied policy key
