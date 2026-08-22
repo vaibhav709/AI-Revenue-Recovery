@@ -104,6 +104,11 @@ def run_recovery_pipeline(
     final_plan = FinalRecoveryPlan.model_validate(
         {
             "customer_id": risk.customer_id,
+            "failure_probability": risk.failure_probability,
+            "predicted_failure": risk.predicted_failure,
+            "risk_level": risk.risk_level,
+            "credit_utilization": risk.credit_utilization,
+            "payment_to_bill_ratio": risk.payment_to_bill_ratio,
             "priority": recovery_policy.priority,
             "strategy": recovery_policy.strategy,
             "communication_channel": recovery_policy.communication_channel,

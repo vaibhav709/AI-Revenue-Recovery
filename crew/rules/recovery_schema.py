@@ -33,6 +33,13 @@ class FinalRecoveryPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     customer_id: int
+    
+    # ML Outputs
+    failure_probability: float
+    predicted_failure: bool
+    risk_level: Literal["LOW", "MEDIUM", "HIGH"]
+    credit_utilization: float
+    payment_to_bill_ratio: float
 
     priority: Literal[
         "ROUTINE",

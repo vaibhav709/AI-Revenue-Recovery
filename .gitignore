@@ -24,4 +24,8 @@ data/raw/
 .idea/
 
 # Logs
-*.log
+*.logdata/*.db
+*.db
+frontend/node_modules/
+*.db
+frontend/dist/

@@ -9,6 +9,7 @@ class RecoveryAnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     customer_id: int
+    nickname: str | None = None
 
     credit_limit: int
     gender: int
@@ -37,19 +38,4 @@ class RecoveryAnalysisRequest(BaseModel):
     payment_amount_5: int
     payment_amount_6: int
 
-    num_delayed_payments: int
-    max_payment_delay: int
-    avg_payment_delay: float
-    recent_payment_delay: int
 
-    avg_bill_amount: float
-    avg_payment_amount: float
-    total_bill_amount: int
-    total_payment_amount: int
-
-    payment_to_bill_ratio: float
-    credit_utilization: float
-    payment_std: float
-    recent_payment_amount: int
-    recent_bill_amount: int
-    recent_payment_ratio: float

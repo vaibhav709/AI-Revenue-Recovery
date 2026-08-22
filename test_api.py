@@ -14,9 +14,25 @@ from test_recovery_pipeline import CUSTOMER_DATA
 class RecoveryApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
+        
+        # Remove derived fields from the API request payload because they are now computed server-side
         self.request_data = {"customer_id": 8681, **CUSTOMER_DATA}
+        derived_keys = [
+            "num_delayed_payments", "max_payment_delay", "avg_payment_delay", "recent_payment_delay",
+            "avg_bill_amount", "avg_payment_amount", "total_bill_amount", "total_payment_amount",
+            "payment_to_bill_ratio", "credit_utilization", "payment_std", "recent_payment_amount",
+            "recent_bill_amount", "recent_payment_ratio"
+        ]
+        for key in derived_keys:
+            self.request_data.pop(key, None)
+            
         self.final_plan = FinalRecoveryPlan(
             customer_id=8681,
+            failure_probability=0.2941,
+            predicted_failure=False,
+            risk_level="LOW",
+            credit_utilization=0.45,
+            payment_to_bill_ratio=0.15,
             priority="PROACTIVE",
             strategy="BALANCE_CLARIFICATION",
             communication_channel="EMAIL",
@@ -36,10 +52,9 @@ class RecoveryApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), self.final_plan.model_dump())
         self.assertEqual(response.json()["customer_id"], 8681)
-        pipeline.assert_called_once_with(
-            customer_data=CUSTOMER_DATA,
-            customer_id=8681,
-        )
+        pipeline.assert_called_once()
+        self.assertEqual(pipeline.call_args.kwargs["customer_id"], 8681)
+        self.assertIn("avg_bill_amount", pipeline.call_args.kwargs["customer_data"])
 
     def test_invalid_request_is_rejected_before_pipeline_execution(self):
         invalid_request = self.request_data.copy()
@@ -142,3 +157,4 @@ class RecoveryApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
