@@ -86,6 +86,12 @@ class RecoveryCase(Base):
     
     status = Column(String, default="Pending")
 
+    # Financial Recovery
+    amount_at_risk = Column(Float, default=0.0)
+    amount_recovered = Column(Float, default=0.0)
+    recovery_status = Column(String, default="Pending")
+    recovery_completed_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

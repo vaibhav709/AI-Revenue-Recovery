@@ -70,6 +70,10 @@ export interface RecoveryCaseItem {
   customer_message: string;
   follow_up_action: string;
   status: string;
+  amount_at_risk: number;
+  amount_recovered: number;
+  recovery_status: string;
+  recovery_completed_at?: string | null;
   created_at: string;
   updated_at: string;
 }

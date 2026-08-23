@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getRecoveryCase, completeRecoveryCase } from '../services/api';
+import { getRecoveryCase, completeRecoveryCase, updateRecoveryOutcome } from '../services/api';
 import { RecoveryCaseDetailResponse } from '../types';
 import clsx from 'clsx';
 import { ChevronLeft, FileText, CheckCircle2 } from 'lucide-react';
@@ -10,12 +10,20 @@ export default function RecoveryCaseDetail() {
   const [data, setData] = useState<RecoveryCaseDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Overview');
+  const [outcomeForm, setOutcomeForm] = useState({ amount_recovered: 0, recovery_status: 'Pending' });
+  const [isUpdatingOutcome, setIsUpdatingOutcome] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState<string | React.ReactNode>("");
 
   const loadData = async () => {
     try {
       if (id) {
         const result = await getRecoveryCase(parseInt(id));
         setData(result);
+        setOutcomeForm({ 
+          amount_recovered: result.case.amount_recovered || 0, 
+          recovery_status: result.case.recovery_status || 'Pending' 
+        });
       }
     } catch (err) {
       console.error("Unable to load recovery case details", err);
@@ -28,14 +36,46 @@ export default function RecoveryCaseDetail() {
     loadData();
   }, [id]);
 
-  const handleComplete = async () => {
-    if (window.confirm("Are you sure you want to mark this case as completed?")) {
-      try {
-        await completeRecoveryCase(data!.case.id);
-        await loadData(); // refresh case details
-      } catch (err) {
-        console.error("Failed to mark case as completed", err);
-      }
+  const handleUpdateOutcome = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingOutcome(true);
+    try {
+      await updateRecoveryOutcome(data!.case.id, outcomeForm);
+      await loadData();
+    } catch (err) {
+      console.error("Failed to update outcome", err);
+    } finally {
+      setIsUpdatingOutcome(false);
+    }
+  };
+
+  const executeCompletion = async () => {
+    try {
+      await completeRecoveryCase(data!.case.id);
+      await loadData(); // refresh case details
+    } catch (err) {
+      console.error("Failed to mark case as completed", err);
+    }
+  };
+
+  const handleCompleteClick = () => {
+    const atRisk = caseData.amount_at_risk || 0;
+    const recovered = caseData.amount_recovered || 0;
+    const diff = atRisk - recovered;
+
+    if (Math.abs(diff) < 0.01) {
+      executeCompletion();
+    } else if (recovered === 0) {
+      setConfirmMessage("No recovery amount has been recorded.\nAre you sure you want to mark this recovery case as completed?");
+      setShowConfirmModal(true);
+    } else {
+      setConfirmMessage(
+        <>
+          Amount not fully recovered.<br />
+          <span className="font-semibold text-gray-900">₹{diff.toLocaleString()}</span> is still outstanding. Are you sure you want to mark this recovery case as completed?
+        </>
+      );
+      setShowConfirmModal(true);
     }
   };
 
@@ -50,6 +90,13 @@ export default function RecoveryCaseDetail() {
   const { case: caseData, customer } = data;
 
   const tabs = ['Overview', 'Risk Analysis', 'Recovery Plan', 'Communication'];
+
+  let outcomeError = null;
+  if (outcomeForm.amount_recovered < 0) {
+    outcomeError = "Error: Recovered amount cannot be negative.";
+  } else if (outcomeForm.amount_recovered > (caseData.amount_at_risk || 0)) {
+    outcomeError = `Error: Recovered amount cannot be greater than the amount at risk (₹${(caseData.amount_at_risk || 0).toLocaleString()}).`;
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -79,7 +126,7 @@ export default function RecoveryCaseDetail() {
            <div className="flex items-center gap-3">
               {caseData.status !== 'Completed' && (
                 <button 
-                  onClick={handleComplete}
+                  onClick={handleCompleteClick}
                   className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
                 >
                   Mark as Completed
@@ -123,6 +170,75 @@ export default function RecoveryCaseDetail() {
                     <div>
                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Failure Probability</div>
                        <div className="font-medium text-gray-900">{(caseData.failure_probability * 100).toFixed(1)}%</div>
+                    </div>
+                 </div>
+                 
+                 <div className="mt-8 border-t border-gray-200 pt-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Outcome</h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                       <div className="space-y-4">
+                          <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                             <span className="text-gray-600">Amount at Risk:</span>
+                             <span className="font-semibold text-gray-900">₹{(caseData.amount_at_risk || 0).toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                             <span className="text-gray-600">Amount Recovered:</span>
+                             <span className="font-semibold text-gray-900">₹{(caseData.amount_recovered || 0).toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                             <span className="text-gray-600">Recovery Status:</span>
+                             <span className="font-semibold text-gray-900">{caseData.recovery_status}</span>
+                          </div>
+                       </div>
+                       
+                       <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                          <h4 className="text-sm font-medium text-gray-900 mb-3">Update Outcome</h4>
+                          <form onSubmit={handleUpdateOutcome} className="space-y-4">
+                             <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Recovered Amount (₹)</label>
+                                <input 
+                                  type="number" 
+                                  value={outcomeForm.amount_recovered}
+                                  onChange={(e) => setOutcomeForm({...outcomeForm, amount_recovered: Number(e.target.value)})}
+                                  className={clsx(
+                                    "w-full px-3 py-2 border rounded-md text-sm",
+                                    outcomeError 
+                                      ? "border-red-500 text-red-900 focus:ring-red-500 focus:border-red-500 bg-red-50" 
+                                      : "border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
+                                  )}
+                                  required
+                                />
+                                {outcomeError && (
+                                  <p className="mt-1 text-xs text-red-600">{outcomeError}</p>
+                                )}
+                             </div>
+                             <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Recovery Status</label>
+                                <select 
+                                  value={outcomeForm.recovery_status}
+                                  onChange={(e) => setOutcomeForm({...outcomeForm, recovery_status: e.target.value})}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                >
+                                  <option value="Pending">Pending</option>
+                                  <option value="In Progress">In Progress</option>
+                                  <option value="Recovered">Recovered</option>
+                                  <option value="Partially Recovered">Partially Recovered</option>
+                                  <option value="Failed">Failed</option>
+                                </select>
+                             </div>
+                             <button 
+                               type="submit" 
+                               disabled={isUpdatingOutcome || !!outcomeError}
+                               className={clsx(
+                                 "w-full px-4 py-2 text-white rounded-md text-sm font-medium transition-colors",
+                                 (isUpdatingOutcome || !!outcomeError) ? "bg-indigo-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
+                               )}
+                             >
+                               {isUpdatingOutcome ? 'Updating...' : 'Save Outcome'}
+                             </button>
+                          </form>
+                       </div>
                     </div>
                  </div>
               </div>
@@ -177,6 +293,32 @@ export default function RecoveryCaseDetail() {
            )}
         </div>
       </div>
+
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Completion</h3>
+            <p className="text-gray-600 mb-6 whitespace-pre-wrap">{confirmMessage}</p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  setShowConfirmModal(false);
+                  executeCompletion();
+                }}
+                className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-md text-sm font-medium transition-colors"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

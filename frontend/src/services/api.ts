@@ -33,6 +33,11 @@ export const getRecoveryCases = async (params?: any): Promise<RecoveryCaseItem[]
   return response.data;
 };
 
+export const updateRecoveryOutcome = async (id: number, data: { amount_recovered: number, recovery_status: string }): Promise<any> => {
+  const response = await api.put(`/recovery/cases/${id}/outcome`, data);
+  return response.data;
+};
+
 export const completeRecoveryCase = async (id: number): Promise<any> => {
   const response = await api.put(`/recovery/cases/${id}/complete`);
   return response.data;

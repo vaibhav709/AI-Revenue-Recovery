@@ -88,6 +88,27 @@ export default function Analytics() {
         <p className="text-gray-500 text-sm mt-1">Deep insights into your recovery operations.</p>
       </div>
 
+      {/* Financial KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+          <h3 className="text-sm font-medium text-gray-500 mb-1">Total Cases</h3>
+          <div className="text-2xl font-bold text-gray-900">{data?.total_cases || 0}</div>
+        </div>
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+          <h3 className="text-sm font-medium text-gray-500 mb-1">Revenue at Risk</h3>
+          <div className="text-2xl font-bold text-gray-900">₹{(data?.total_amount_at_risk || 0).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+        </div>
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+          <h3 className="text-sm font-medium text-gray-500 mb-1">Revenue Recovered</h3>
+          <div className="text-2xl font-bold text-emerald-600">₹{(data?.total_amount_recovered || 0).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+        </div>
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+          <h3 className="text-sm font-medium text-gray-500 mb-1">Recovery Rate</h3>
+          <div className="text-2xl font-bold text-gray-900">{(data?.recovery_rate || 0).toFixed(1)}%</div>
+          <p className="text-xs text-gray-500 mt-1">{data?.recovered_cases || 0} cases recovered</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Risk Distribution */}

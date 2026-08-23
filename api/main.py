@@ -98,7 +98,14 @@ def analyze_recovery(request: RecoveryAnalysisRequest, db: Session = Depends(get
             if hasattr(customer, key):
                 setattr(customer, key, value)
                 
-        # Insert RecoveryCase
+        # REVIEW: amount_at_risk Interpretation
+        # Here we use the full recent bill (bill_amount_1) as the financial exposure (amount_at_risk)
+        # rather than Expected Loss (bill_amount_1 * failure_probability). 
+        # Rationale: "Revenue at Risk" in typical collections dashboards reflects the total 
+        # nominal value of invoices at risk of default. Using Expected Loss would dilute 
+        # the metric's visibility and misrepresent the actual dollars the agent is trying to recover.
+        amount_at_risk = max(0.0, float(customer.bill_amount_1 or 0.0))
+        
         db_case = RecoveryCase(
             customer_id=customer_id,
             failure_probability=plan.failure_probability,
@@ -112,7 +119,9 @@ def analyze_recovery(request: RecoveryAnalysisRequest, db: Session = Depends(get
             final_action=plan.final_action,
             customer_message=plan.customer_message,
             follow_up_action=plan.follow_up_action,
-            status="Proactive" if plan.priority == "PROACTIVE" else "Escalated" if plan.priority == "HIGH" else "Pending"
+            status="Proactive" if plan.priority == "PROACTIVE" else "Escalated" if plan.priority == "HIGH" else "Pending",
+            amount_at_risk=amount_at_risk,
+            recovery_status="Pending"
         )
         db.add(db_case)
         db.commit()
@@ -206,6 +215,37 @@ def get_cases(search: str = None, risk: str = None, strategy: str = None, channe
         results.append(case_dict)
     return results
 
+from pydantic import BaseModel
+import datetime
+
+from typing import Literal
+
+class RecoveryOutcomeRequest(BaseModel):
+    amount_recovered: float
+    recovery_status: Literal["Pending", "In Progress", "Recovered", "Partially Recovered", "Failed", "Escalated"]
+
+@app.put("/recovery/cases/{case_id}/outcome")
+def update_outcome(case_id: int, outcome: RecoveryOutcomeRequest, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    if outcome.amount_recovered < 0:
+        raise HTTPException(status_code=400, detail="Recovered amount cannot be negative")
+        
+    if case.amount_at_risk < 0:
+        raise HTTPException(status_code=400, detail="Amount at risk cannot be negative")
+        
+    if outcome.amount_recovered > case.amount_at_risk:
+        raise HTTPException(status_code=400, detail="Recovered amount cannot exceed the amount at risk")
+    
+    case.amount_recovered = outcome.amount_recovered
+    case.recovery_status = outcome.recovery_status
+    if outcome.recovery_status in ["Recovered", "Partially Recovered", "Failed"]:
+        case.recovery_completed_at = datetime.datetime.utcnow()
+    db.commit()
+    return {"status": "success", "message": "Outcome updated"}
+
 @app.put("/recovery/cases/{case_id}/complete")
 def complete_case(case_id: int, db: Session = Depends(get_db)):
     case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
@@ -247,8 +287,34 @@ def get_analytics_metrics(db: Session = Depends(get_db)):
     strategy_dist = db.query(RecoveryCase.strategy, func.count(RecoveryCase.id)).group_by(RecoveryCase.strategy).all()
     channel_dist = db.query(RecoveryCase.communication_channel, func.count(RecoveryCase.id)).group_by(RecoveryCase.communication_channel).all()
     
+    # REVIEW: Case Semantics and Double Counting
+    # Financial recovery is measured strictly at the RecoveryCase level. 
+    # If a customer is analyzed twice, two distinct cases are created. 
+    # By summing amount_at_risk and amount_recovered across ALL cases, we measure 
+    # the total financial throughput of the recovery team's workflows.
+    # This is internally consistent: a duplicate case means the team worked the case twice, 
+    # so both the risk handled and the outcome achieved belong to the workflow metrics.
+    total_cases = db.query(func.count(RecoveryCase.id)).scalar() or 0
+    total_at_risk = db.query(func.sum(RecoveryCase.amount_at_risk)).scalar() or 0.0
+    total_recovered = db.query(func.sum(RecoveryCase.amount_recovered)).scalar() or 0.0
+    
+    recovery_rate = (total_recovered / total_at_risk * 100) if total_at_risk > 0 else 0.0
+    
+    recovered_cases = db.query(func.count(RecoveryCase.id)).filter(RecoveryCase.recovery_status == 'Recovered').scalar() or 0
+    partially_recovered_cases = db.query(func.count(RecoveryCase.id)).filter(RecoveryCase.recovery_status == 'Partially Recovered').scalar() or 0
+    failed_cases = db.query(func.count(RecoveryCase.id)).filter(RecoveryCase.recovery_status == 'Failed').scalar() or 0
+    escalated_cases = db.query(func.count(RecoveryCase.id)).filter(RecoveryCase.status == 'Escalated').scalar() or 0
+    
     return {
         "risk_distribution": [{"name": r[0], "value": r[1]} for r in risk_dist],
         "strategy_distribution": [{"name": s[0], "value": s[1]} for s in strategy_dist],
-        "channel_distribution": [{"name": c[0], "value": c[1]} for c in channel_dist]
+        "channel_distribution": [{"name": c[0], "value": c[1]} for c in channel_dist],
+        "total_cases": total_cases,
+        "total_amount_at_risk": total_at_risk,
+        "total_amount_recovered": total_recovered,
+        "recovery_rate": recovery_rate,
+        "recovered_cases": recovered_cases,
+        "partially_recovered_cases": partially_recovered_cases,
+        "failed_cases": failed_cases,
+        "escalated_cases": escalated_cases
     }

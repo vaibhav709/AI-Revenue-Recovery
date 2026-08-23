@@ -33,16 +33,19 @@ class TestDatabaseAPI(unittest.TestCase):
         from api.database import SessionLocal
         
         db = SessionLocal()
-        cust = Customer(customer_id=99999, credit_limit=100)
-        db.add(cust)
-        db.commit()
+        cust = db.query(Customer).filter(Customer.customer_id==99999).first()
+        if not cust:
+            cust = Customer(customer_id=99999, credit_limit=100)
+            db.add(cust)
+            db.commit()
         db.refresh(cust)
         
         case = RecoveryCase(
             customer_id=99999, failure_probability=0.8, predicted_failure=True,
             risk_level="HIGH", priority="HIGH", strategy="ESCALATED",
             communication_channel="PHONE", follow_up_days=1, escalation_candidate=True,
-            status="Pending"
+            status="Pending",
+            amount_at_risk=200.0
         )
         db.add(case)
         db.commit()
@@ -52,6 +55,15 @@ class TestDatabaseAPI(unittest.TestCase):
         db.close()
 
         # Complete the case
+        res = self.client.put(f"/recovery/cases/{case_id}/outcome", json={"amount_recovered": 100, "recovery_status": "Recovered"})
+        self.assertEqual(res.status_code, 200)
+        
+        # Verify it shows up in analytics
+        res_analytics = self.client.get("/analytics/metrics")
+        analytics = res_analytics.json()
+        self.assertGreaterEqual(analytics["total_amount_recovered"], 100)
+
+        # Mark as completed
         res = self.client.put(f"/recovery/cases/{case_id}/complete")
         self.assertEqual(res.status_code, 200)
 
@@ -64,6 +76,58 @@ class TestDatabaseAPI(unittest.TestCase):
         res = self.client.get("/recovery/cases?status=Completed")
         completed_cases = res.json()
         self.assertIn(case_id, [c['id'] for c in completed_cases])
+
+
+    def test_outcome_validation(self):
+        from api.models import Customer, RecoveryCase
+        from api.database import SessionLocal
+        
+        db = SessionLocal()
+        cust = db.query(Customer).filter(Customer.customer_id==88888).first()
+        if not cust:
+            cust = Customer(customer_id=88888, credit_limit=100)
+            db.add(cust)
+            db.commit()
+            
+        case = RecoveryCase(
+            customer_id=88888, failure_probability=0.8, predicted_failure=True,
+            risk_level="HIGH", priority="HIGH", strategy="ESCALATED",
+            communication_channel="PHONE", follow_up_days=1, escalation_candidate=True,
+            status="Pending", amount_at_risk=1000.0, amount_recovered=0.0
+        )
+        db.add(case)
+        db.commit()
+        db.refresh(case)
+        case_id = case.id
+        db.close()
+
+        # 1. Negative amount_recovered -> rejected
+        res = self.client.put(f"/recovery/cases/{case_id}/outcome", json={"amount_recovered": -50, "recovery_status": "Recovered"})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("cannot be negative", res.json()["detail"])
+
+        # 2. amount_recovered > amount_at_risk -> rejected
+        res = self.client.put(f"/recovery/cases/{case_id}/outcome", json={"amount_recovered": 1500, "recovery_status": "Recovered"})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("cannot exceed", res.json()["detail"])
+
+        # 3. Invalid recovery_status -> rejected
+        res = self.client.put(f"/recovery/cases/{case_id}/outcome", json={"amount_recovered": 100, "recovery_status": "Arbitrary"})
+        self.assertEqual(res.status_code, 422)
+
+        # 4. Valid partially recovered outcome -> accepted
+        res = self.client.put(f"/recovery/cases/{case_id}/outcome", json={"amount_recovered": 500, "recovery_status": "Partially Recovered"})
+        self.assertEqual(res.status_code, 200)
+
+        # 5. Valid recovered outcome -> accepted
+        res = self.client.put(f"/recovery/cases/{case_id}/outcome", json={"amount_recovered": 1000, "recovery_status": "Recovered"})
+        self.assertEqual(res.status_code, 200)
+
+        # 6. Analytics calculation remains correct
+        res_analytics = self.client.get("/analytics/metrics")
+        analytics = res_analytics.json()
+        self.assertGreaterEqual(analytics["total_amount_recovered"], 1000)
+        self.assertTrue(analytics["recovery_rate"] <= 100.0)
 
 if __name__ == "__main__":
     unittest.main()
