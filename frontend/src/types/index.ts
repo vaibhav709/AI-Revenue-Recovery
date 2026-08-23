@@ -74,6 +74,17 @@ export interface RecoveryCaseItem {
   amount_recovered: number;
   recovery_status: string;
   recovery_completed_at?: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  last_attempt_at?: string | null;
+  escalation_reason?: string | null;
+  ai_decision?: string | null;
+  ai_recommended_action?: string | null;
+  ai_reasoning?: string | null;
+  ai_confidence?: number | null;
+  ai_communication_channel?: string | null;
+  ai_follow_up_days?: number | null;
+  ai_customer_message?: string | null;
   created_at: string;
   updated_at: string;
 }

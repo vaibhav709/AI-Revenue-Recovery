@@ -9,7 +9,7 @@ from sqlalchemy import func, String
 
 from api.schemas import RecoveryAnalysisRequest
 from api.database import engine, Base, get_db
-from api.models import Customer, RecoveryCase
+from api.models import Customer, RecoveryCase, MAX_RECOVERY_ATTEMPTS
 from crew.pipeline import CrewAIWorkflowError, run_recovery_pipeline
 from crew.rules.recovery_schema import FinalRecoveryPlan
 import statistics
@@ -121,7 +121,9 @@ def analyze_recovery(request: RecoveryAnalysisRequest, db: Session = Depends(get
             follow_up_action=plan.follow_up_action,
             status="Proactive" if plan.priority == "PROACTIVE" else "Escalated" if plan.priority == "HIGH" else "Pending",
             amount_at_risk=amount_at_risk,
-            recovery_status="Pending"
+            recovery_status="Pending",
+            max_attempts=MAX_RECOVERY_ATTEMPTS,
+            attempt_count=0
         )
         db.add(db_case)
         db.commit()
@@ -241,10 +243,170 @@ def update_outcome(case_id: int, outcome: RecoveryOutcomeRequest, db: Session = 
     
     case.amount_recovered = outcome.amount_recovered
     case.recovery_status = outcome.recovery_status
-    if outcome.recovery_status in ["Recovered", "Partially Recovered", "Failed"]:
+    
+    if case.amount_recovered >= case.amount_at_risk and case.amount_at_risk > 0:
+        if case.status == "Escalated":
+            case.status = "Pending"  # De-escalate if fully recovered
+            case.escalation_reason = None
+            
+    if outcome.recovery_status in ["Recovered", "Partially Recovered", "Failed", "Escalated"]:
         case.recovery_completed_at = datetime.datetime.utcnow()
     db.commit()
     return {"status": "success", "message": "Outcome updated"}
+
+
+@app.post("/recovery/cases/{case_id}/generate-action")
+def generate_ai_action(case_id: int, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    # HARD STOPPING RULES (Backend enforced)
+    def save_hard_rule(decision, reason, recommended_action):
+        case.ai_decision = decision
+        case.ai_reasoning = reason
+        case.ai_recommended_action = recommended_action
+        case.ai_confidence = 1.0
+        case.ai_communication_channel = None
+        case.ai_follow_up_days = None
+        case.ai_customer_message = None
+        db.commit()
+        return {
+            "success": True,
+            "ai_decision": case.ai_decision,
+            "ai_reasoning": case.ai_reasoning,
+            "ai_recommended_action": case.ai_recommended_action,
+            "ai_confidence": case.ai_confidence
+        }
+
+    if case.amount_recovered >= case.amount_at_risk:
+        return save_hard_rule("STOP", "Recovery target has already been reached.", "Stop Recovery")
+    
+    if case.status == "Completed":
+        return save_hard_rule("STOP", "Case is already completed.", "Stop Recovery")
+        
+    if case.status == "Escalated":
+        return save_hard_rule("STOP", "Case is already escalated.", "Stop Recovery")
+        
+    if case.attempt_count >= case.max_attempts:
+        return save_hard_rule("ESCALATE", "Maximum recovery attempts reached.", "Escalate Case")
+        
+    customer = case.customer
+    case_dict = {c.name: getattr(case, c.name) for c in case.__table__.columns}
+    cust_dict = {c.name: getattr(customer, c.name) for c in customer.__table__.columns} if customer else {}
+    
+    from api.services.recovery_ai import generate_ai_action_internal
+    
+    try:
+        ai_response = generate_ai_action_internal(case_dict, cust_dict)
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+        
+    decision = ai_response.get("decision")
+    if decision not in ["STOP", "CONTINUE", "ESCALATE"]:
+        raise HTTPException(status_code=500, detail="Invalid decision from AI.")
+        
+    case.ai_decision = decision
+    case.ai_recommended_action = ai_response.get("recommended_action")
+    case.ai_reasoning = ai_response.get("reason")
+    case.ai_confidence = ai_response.get("confidence")
+    case.ai_communication_channel = ai_response.get("communication_channel")
+    case.ai_follow_up_days = ai_response.get("follow_up_days")
+    case.ai_customer_message = ai_response.get("customer_message")
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "ai_decision": case.ai_decision,
+        "ai_recommended_action": case.ai_recommended_action,
+        "ai_reasoning": case.ai_reasoning,
+        "ai_confidence": case.ai_confidence,
+        "ai_communication_channel": case.ai_communication_channel,
+        "ai_follow_up_days": case.ai_follow_up_days,
+        "ai_customer_message": case.ai_customer_message
+    }
+
+@app.post("/recovery/cases/{case_id}/attempt")
+def record_attempt(case_id: int, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    # RULE 1: FULL RECOVERY
+    if case.amount_recovered >= case.amount_at_risk :
+        return {
+            "decision": "STOP",
+            "attempt_count": case.attempt_count,
+            "max_attempts": case.max_attempts,
+            "message": "Recovery target has already been fully recovered."
+        }
+        
+    # RULE 2: CASE COMPLETED
+    if case.status == "Completed":
+        return {
+            "decision": "STOP",
+            "attempt_count": case.attempt_count,
+            "max_attempts": case.max_attempts,
+            "message": "Case is already completed."
+        }
+        
+    # RULE 3: CASE ESCALATED
+    if case.status == "Escalated":
+        return {
+            "decision": "STOP",
+            "attempt_count": case.attempt_count,
+            "max_attempts": case.max_attempts,
+            "message": "Case is already escalated."
+        }
+        
+    # RULE 4: MAXIMUM ATTEMPTS
+    if case.attempt_count >= case.max_attempts:
+        if case.amount_recovered < case.amount_at_risk:
+            case.status = "Escalated"
+            case.recovery_status = "Escalated"
+            case.escalation_reason = "Maximum recovery attempts reached without full recovery."
+            db.commit()
+            return {
+                "decision": "ESCALATE",
+                "attempt_count": case.attempt_count,
+                "max_attempts": case.max_attempts,
+                "message": "Maximum recovery attempts reached. Further recovery attempts have been stopped.",
+                "escalation_reason": case.escalation_reason
+            }
+        else:
+            return {
+                "decision": "STOP",
+                "attempt_count": case.attempt_count,
+                "max_attempts": case.max_attempts,
+                "message": "Maximum recovery attempts reached, but recovery is complete."
+            }
+            
+    # RULE 5: CONTINUE
+    case.attempt_count += 1
+    case.last_attempt_at = datetime.datetime.utcnow()
+    
+    # Check boundaries immediately after incrementing
+    if case.attempt_count >= case.max_attempts and case.amount_recovered < case.amount_at_risk:
+        case.status = "Escalated"
+        case.recovery_status = "Escalated"
+        case.escalation_reason = "Maximum recovery attempts reached without full recovery."
+        db.commit()
+        return {
+            "decision": "ESCALATE",
+            "attempt_count": case.attempt_count,
+            "max_attempts": case.max_attempts,
+            "message": "Maximum recovery attempts reached. Further recovery attempts have been stopped.",
+            "escalation_reason": case.escalation_reason
+        }
+    
+    db.commit()
+    return {
+        "decision": "CONTINUE",
+        "attempt_count": case.attempt_count,
+        "max_attempts": case.max_attempts,
+        "message": "Recovery attempt recorded."
+    }
 
 @app.put("/recovery/cases/{case_id}/complete")
 def complete_case(case_id: int, db: Session = Depends(get_db)):

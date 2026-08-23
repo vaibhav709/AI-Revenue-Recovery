@@ -38,6 +38,16 @@ export const updateRecoveryOutcome = async (id: number, data: { amount_recovered
   return response.data;
 };
 
+export const recordRecoveryAttempt = async (id: number): Promise<any> => {
+  const response = await api.post(`/recovery/cases/${id}/attempt`);
+  return response.data;
+};
+
+export const generateAiAction = async (id: number): Promise<any> => {
+  const response = await api.post(`/recovery/cases/${id}/generate-action`);
+  return response.data;
+};
+
 export const completeRecoveryCase = async (id: number): Promise<any> => {
   const response = await api.put(`/recovery/cases/${id}/complete`);
   return response.data;

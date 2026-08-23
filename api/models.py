@@ -92,7 +92,24 @@ class RecoveryCase(Base):
     recovery_status = Column(String, default="Pending")
     recovery_completed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Recovery Attempt Tracking
+    attempt_count = Column(Integer, default=0)
+    max_attempts = Column(Integer, default=5)
+    last_attempt_at = Column(DateTime, nullable=True)
+    escalation_reason = Column(String, nullable=True)
+
+    # AI Recommendation
+    ai_decision = Column(String, nullable=True)
+    ai_recommended_action = Column(String, nullable=True)
+    ai_reasoning = Column(String, nullable=True)
+    ai_confidence = Column(Float, nullable=True)
+    ai_communication_channel = Column(String, nullable=True)
+    ai_follow_up_days = Column(Integer, nullable=True)
+    ai_customer_message = Column(String, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     customer = relationship("Customer", back_populates="cases")
+
+MAX_RECOVERY_ATTEMPTS = 5
