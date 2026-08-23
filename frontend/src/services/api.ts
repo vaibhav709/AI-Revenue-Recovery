@@ -6,7 +6,8 @@ import {
   CustomerDetailResponse, 
   RecoveryCaseItem, 
   RecoveryCaseDetailResponse, 
-  DashboardMetrics 
+  DashboardMetrics,
+  BatchAnalysisResponse
 } from '../types';
 
 const api = axios.create({
@@ -65,5 +66,10 @@ export const getDashboardMetrics = async (): Promise<DashboardMetrics> => {
 
 export const getAnalyticsMetrics = async (): Promise<any> => {
   const response = await api.get<any>('/analytics/metrics');
+  return response.data;
+};
+
+export const analyzeBatch = async (): Promise<BatchAnalysisResponse> => {
+  const response = await api.post<BatchAnalysisResponse>('/recovery/analyze-batch');
   return response.data;
 };

@@ -119,7 +119,7 @@ def analyze_recovery(request: RecoveryAnalysisRequest, db: Session = Depends(get
             final_action=plan.final_action,
             customer_message=plan.customer_message,
             follow_up_action=plan.follow_up_action,
-            status="Proactive" if plan.priority == "PROACTIVE" else "Escalated" if plan.priority == "HIGH" else "Pending",
+            status="Proactive" if plan.priority == "PROACTIVE" else "Pending",
             amount_at_risk=amount_at_risk,
             recovery_status="Pending",
             max_attempts=MAX_RECOVERY_ATTEMPTS,
@@ -193,7 +193,7 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
     }
 
 @app.get("/recovery/cases")
-def get_cases(search: str = None, risk: str = None, strategy: str = None, channel: str = None, status: str = None, db: Session = Depends(get_db)):
+def get_cases(search: str = None, risk: str = None, strategy: str = None, channel: str = None, status: str = None, priority: str = None, db: Session = Depends(get_db)):
     query = db.query(RecoveryCase)
     if search:
         query = query.filter(RecoveryCase.customer_id.cast(String).contains(search))
@@ -208,6 +208,8 @@ def get_cases(search: str = None, risk: str = None, strategy: str = None, channe
     else:
         # Exclude completed cases by default in active case views
         query = query.filter(RecoveryCase.status != "Completed")
+    if priority and priority != "All":
+        query = query.filter(RecoveryCase.priority_tier == priority)
         
     cases = query.order_by(RecoveryCase.created_at.desc()).all()
     results = []
@@ -254,6 +256,140 @@ def update_outcome(case_id: int, outcome: RecoveryOutcomeRequest, db: Session = 
     db.commit()
     return {"status": "success", "message": "Outcome updated"}
 
+
+@app.post("/recovery/analyze-batch")
+def analyze_recovery_batch(db: Session = Depends(get_db)):
+    customers = db.query(Customer).all()
+    
+    results = []
+    max_amount_at_risk_in_batch = 0.0
+    errors = []
+    
+    for customer in customers:
+        try:
+            cust_dict = {c.name: getattr(customer, c.name) for c in customer.__table__.columns}
+            # Add customer_id manually to dict to be safe if compute_derived_features or pipeline needs it
+            full_data = compute_derived_features(cust_dict)
+            
+            from ml.predict import predict_payment_failure
+            from crew.rules.recovery_rules import determine_recovery_policy
+            
+            risk = predict_payment_failure(full_data, customer.customer_id)
+            recovery_policy = determine_recovery_policy(
+                risk_level=risk.risk_level,
+                predicted_failure=risk.predicted_failure,
+                num_delayed_payments=risk.num_delayed_payments,
+                recent_payment_ratio=risk.recent_payment_ratio,
+                payment_to_bill_ratio=risk.payment_to_bill_ratio,
+            )
+            
+            amount_at_risk = max(0.0, float(customer.bill_amount_1 or 0.0))
+            if amount_at_risk > max_amount_at_risk_in_batch:
+                max_amount_at_risk_in_batch = amount_at_risk
+                
+            results.append({
+                "customer": customer,
+                "risk": risk,
+                "recovery_policy": recovery_policy,
+                "amount_at_risk": amount_at_risk
+            })
+        except Exception as e:
+            errors.append({"customer_id": customer.customer_id, "error": str(e)})
+
+    new_cases_created = 0
+    existing_cases_updated = 0
+    cases_skipped = 0
+    tiers_count = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    
+    from api.services.scoring import calculate_priority_score, update_active_case_analytics
+
+    for res in results:
+        customer = res["customer"]
+        risk = res["risk"]
+        recovery_policy = res["recovery_policy"]
+        amount_at_risk = res["amount_at_risk"]
+        
+        # Check active case
+        # Active definition: status != "Completed" AND amount_recovered < amount_at_risk
+        active_cases = [c for c in customer.cases if c.status != "Completed" and c.amount_recovered < c.amount_at_risk]
+        
+        # Select the most recent active case if multiple exist
+        active_case = sorted(active_cases, key=lambda c: c.id, reverse=True)[0] if active_cases else None
+        
+        if active_case:
+            priority_dict = calculate_priority_score(
+                failure_probability=risk.failure_probability,
+                amount_at_risk=amount_at_risk,
+                max_amount_in_batch=max_amount_at_risk_in_batch,
+                attempt_count=active_case.attempt_count,
+                status=active_case.status
+            )
+            
+            new_analytics = {
+                "failure_probability": risk.failure_probability,
+                "predicted_failure": risk.predicted_failure,
+                "risk_level": risk.risk_level,
+                "priority": recovery_policy.priority,
+                "priority_score": priority_dict["priority_score"],
+                "priority_tier": priority_dict["priority_tier"],
+                "priority_factors": priority_dict["priority_factors"],
+                "amount_at_risk": amount_at_risk
+            }
+            
+            update_active_case_analytics(active_case, new_analytics)
+            existing_cases_updated += 1
+            tiers_count[priority_dict["priority_tier"]] += 1
+            
+        else:
+            # Create a new RecoveryCase
+            priority_dict = calculate_priority_score(
+                failure_probability=risk.failure_probability,
+                amount_at_risk=amount_at_risk,
+                max_amount_in_batch=max_amount_at_risk_in_batch,
+                attempt_count=0,
+                status="Proactive" if recovery_policy.priority == "PROACTIVE" else "Pending"
+            )
+            
+            db_case = RecoveryCase(
+                customer_id=customer.customer_id,
+                failure_probability=risk.failure_probability,
+                predicted_failure=risk.predicted_failure,
+                risk_level=risk.risk_level,
+                priority=recovery_policy.priority,
+                strategy=recovery_policy.strategy,
+                communication_channel=recovery_policy.communication_channel,
+                follow_up_days=recovery_policy.follow_up_days,
+                escalation_candidate=recovery_policy.escalation_candidate,
+                final_action="",
+                customer_message="",
+                follow_up_action="",
+                status="Proactive" if recovery_policy.priority == "PROACTIVE" else "Pending",
+                amount_at_risk=amount_at_risk,
+                recovery_status="Pending",
+                max_attempts=MAX_RECOVERY_ATTEMPTS,
+                attempt_count=0,
+                priority_score=priority_dict["priority_score"],
+                priority_tier=priority_dict["priority_tier"],
+                priority_factors=priority_dict["priority_factors"]
+            )
+            db.add(db_case)
+            new_cases_created += 1
+            tiers_count[priority_dict["priority_tier"]] += 1
+            
+    db.commit()
+    
+    return {
+        "success": True,
+        "total_analyzed": len(results),
+        "new_cases_created": new_cases_created,
+        "existing_cases_updated": existing_cases_updated,
+        "cases_skipped": cases_skipped,
+        "critical_cases": tiers_count["CRITICAL"],
+        "high_priority_cases": tiers_count["HIGH"],
+        "medium_priority_cases": tiers_count["MEDIUM"],
+        "low_priority_cases": tiers_count["LOW"],
+        "errors": errors
+    }
 
 @app.post("/recovery/cases/{case_id}/generate-action")
 def generate_ai_action(case_id: int, db: Session = Depends(get_db)):

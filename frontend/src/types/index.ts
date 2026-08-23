@@ -85,6 +85,9 @@ export interface RecoveryCaseItem {
   ai_communication_channel?: string | null;
   ai_follow_up_days?: number | null;
   ai_customer_message?: string | null;
+  priority_score?: number | null;
+  priority_tier?: string | null;
+  priority_factors?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -105,4 +108,17 @@ export interface DashboardMetrics {
   high_risk: number;
   proactive: number;
   escalated: number;
+}
+
+export interface BatchAnalysisResponse {
+  success: boolean;
+  total_analyzed: number;
+  new_cases_created: number;
+  existing_cases_updated: number;
+  cases_skipped: number;
+  critical_cases: number;
+  high_priority_cases: number;
+  medium_priority_cases: number;
+  low_priority_cases: number;
+  errors: any[];
 }

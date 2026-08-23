@@ -74,6 +74,9 @@ class RecoveryCase(Base):
     
     # Policy Outputs
     priority = Column(String)
+    priority_score = Column(Integer, nullable=True)
+    priority_tier = Column(String, nullable=True)
+    priority_factors = Column(String, nullable=True)
     strategy = Column(String)
     communication_channel = Column(String)
     follow_up_days = Column(Integer)

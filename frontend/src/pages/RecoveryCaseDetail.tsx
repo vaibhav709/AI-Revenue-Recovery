@@ -535,9 +535,189 @@ export default function RecoveryCaseDetail() {
       </div>
     )}
            {activeTab === 'Risk Analysis' && (
-              <div>
-                 <p className="text-gray-500">Risk outputs have been persisted and apply to this historical record.</p>
-              </div>
+             <div className="space-y-8">
+               {/* 1. OVERALL RISK CARD */}
+               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                 <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                   <div>
+                     <h3 className="text-lg font-bold text-gray-900 mb-1">Overall Risk Assessment</h3>
+                     <p className="text-sm text-gray-500">Probability of payment failure within the next period.</p>
+                   </div>
+                   <div className="flex items-center gap-4">
+                     <div className="text-right">
+                       <div className="text-sm text-gray-500 font-medium mb-1 uppercase tracking-wider">Failure Probability</div>
+                       <div className="text-3xl font-bold text-gray-900">{(caseData.failure_probability * 100).toFixed(2)}%</div>
+                     </div>
+                     <div className={clsx(
+                       "flex flex-col items-center justify-center px-6 py-3 rounded-lg border",
+                       caseData.risk_level === 'HIGH' && "bg-red-50 border-red-200 text-red-700",
+                       caseData.risk_level === 'MEDIUM' && "bg-amber-50 border-amber-200 text-amber-700",
+                       caseData.risk_level === 'LOW' && "bg-emerald-50 border-emerald-200 text-emerald-700",
+                       caseData.risk_level === 'PROACTIVE' && "bg-blue-50 border-blue-200 text-blue-700"
+                     )}>
+                       <span className="text-xs uppercase font-bold tracking-wider mb-1 opacity-80">Risk Level</span>
+                       <span className="text-xl font-bold">{caseData.risk_level}</span>
+                     </div>
+                   </div>
+                 </div>
+                 <div className="px-6 py-4 bg-gray-50 flex flex-col sm:flex-row items-center gap-4">
+                   <div className="flex-1 w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                     <div 
+                       className={clsx(
+                         "h-2.5 rounded-full",
+                         caseData.risk_level === 'HIGH' ? "bg-red-500" :
+                         caseData.risk_level === 'MEDIUM' ? "bg-amber-500" : 
+                         caseData.risk_level === 'PROACTIVE' ? "bg-blue-500" : "bg-emerald-500"
+                       )} 
+                       style={{ width: `${Math.min(100, Math.max(0, caseData.failure_probability * 100))}%` }}
+                     ></div>
+                   </div>
+                   <div className="flex items-center gap-2 whitespace-nowrap">
+                     <span className="text-sm font-medium text-gray-700">Predicted Failure:</span>
+                     <span className={clsx(
+                       "px-2.5 py-0.5 rounded text-xs font-bold uppercase",
+                       caseData.predicted_failure ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
+                     )}>
+                       {caseData.predicted_failure ? 'YES' : 'NO'}
+                     </span>
+                   </div>
+                 </div>
+               </div>
+
+               {/* 2. KEY RISK INDICATORS */}
+               <div>
+                 <h3 className="text-lg font-bold text-gray-900 mb-4">Key Risk Indicators</h3>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="text-sm text-gray-500 font-medium mb-1">Delayed Payments</div>
+                     <div className="text-2xl font-bold text-gray-900 mb-2">{customer?.num_delayed_payments ?? 0}</div>
+                     <p className="text-xs text-gray-500">{(customer?.num_delayed_payments ?? 0) > 0 ? `${customer.num_delayed_payments} periods of delayed payment recorded` : 'Consistent on-time payment history'}</p>
+                   </div>
+                   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="text-sm text-gray-500 font-medium mb-1">Maximum Payment Delay</div>
+                     <div className="text-2xl font-bold text-gray-900 mb-2">{customer?.max_payment_delay ?? 0} months</div>
+                     <p className="text-xs text-gray-500">{(customer?.max_payment_delay ?? 0) > 0 ? `Longest recorded delay is ${customer.max_payment_delay} months` : 'No significant historical delays'}</p>
+                   </div>
+                   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="text-sm text-gray-500 font-medium mb-1">Recent Payment Delay</div>
+                     <div className="text-2xl font-bold text-gray-900 mb-2">{customer?.recent_payment_delay ?? 0} months</div>
+                     <p className="text-xs text-gray-500">{(customer?.recent_payment_delay ?? 0) > 0 ? `Most recent cycle shows ${customer.recent_payment_delay} month delay` : 'No delay in the most recent cycle'}</p>
+                   </div>
+                   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="text-sm text-gray-500 font-medium mb-1">Credit Utilization</div>
+                     <div className="text-2xl font-bold text-gray-900 mb-2">{((customer?.credit_utilization ?? 0) * 100).toFixed(2)}%</div>
+                     <p className="text-xs text-gray-500">{(customer?.credit_utilization ?? 0) > 0.8 ? 'High utilization indicates financial strain' : 'Utilization is within manageable limits'}</p>
+                   </div>
+                   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="text-sm text-gray-500 font-medium mb-1">Payment-to-Bill Ratio</div>
+                     <div className="text-2xl font-bold text-gray-900 mb-2">{((customer?.payment_to_bill_ratio ?? 0) * 100).toFixed(2)}%</div>
+                     <p className="text-xs text-gray-500">{(customer?.payment_to_bill_ratio ?? 0) < 0.2 ? 'Very low historical payment coverage' : 'Historical payment coverage is reasonable'}</p>
+                   </div>
+                   <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="text-sm text-gray-500 font-medium mb-1">Recent Payment Ratio</div>
+                     <div className="text-2xl font-bold text-gray-900 mb-2">{((customer?.recent_payment_ratio ?? 0) * 100).toFixed(2)}%</div>
+                     <p className="text-xs text-gray-500">{(customer?.recent_payment_ratio ?? 0) < 0.2 ? 'Recent payment covers a small fraction of the bill' : 'Recent payment covers a substantial portion'}</p>
+                   </div>
+                 </div>
+               </div>
+
+               {/* 3. PAYMENT BEHAVIOR & 4. RISK FACTORS */}
+               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                 <div>
+                   <h3 className="text-lg font-bold text-gray-900 mb-4">Payment Behavior</h3>
+                   <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 shadow-sm">
+                     <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+                       <span className="text-gray-600 font-medium">Recent Bill</span>
+                       <span className="font-bold text-gray-900">₹{(customer?.recent_bill_amount || 0).toLocaleString()}</span>
+                     </div>
+                     <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+                       <span className="text-gray-600 font-medium">Recent Payment</span>
+                       <span className="font-bold text-gray-900">₹{(customer?.recent_payment_amount || 0).toLocaleString()}</span>
+                     </div>
+                     <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+                       <span className="text-gray-600 font-medium">Recent Payment Ratio</span>
+                       <span className="font-bold text-gray-900">{((customer?.recent_payment_ratio ?? 0) * 100).toFixed(2)}%</span>
+                     </div>
+                     <div className="flex justify-between items-center">
+                       <span className="text-gray-600 font-medium">Average Payment Delay</span>
+                       <span className="font-bold text-gray-900">{(customer?.avg_payment_delay ?? 0).toFixed(1)} months</span>
+                     </div>
+                   </div>
+                 </div>
+
+                 <div>
+                   <h3 className="text-lg font-bold text-gray-900 mb-4">Risk Factors</h3>
+                   <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3 shadow-sm h-[calc(100%-2rem)]">
+                     {caseData.risk_level === 'HIGH' && (
+                       <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                         <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                         <div>
+                           <div className="text-xs font-bold text-red-700 uppercase tracking-wide">High Failure Probability</div>
+                           <div className="text-sm text-red-600">{(caseData.failure_probability * 100).toFixed(2)}% predicted failure</div>
+                         </div>
+                       </div>
+                     )}
+                     {(customer?.recent_payment_delay ?? 0) > 0 && (
+                       <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                         <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                         <div>
+                           <div className="text-xs font-bold text-amber-700 uppercase tracking-wide">Recent Payment Delay</div>
+                           <div className="text-sm text-amber-600">{customer.recent_payment_delay} months overdue in recent cycle</div>
+                         </div>
+                       </div>
+                     )}
+                     {(customer?.payment_to_bill_ratio ?? 0) < 0.3 && (
+                       <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-lg border border-orange-100">
+                         <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                         <div>
+                           <div className="text-xs font-bold text-orange-700 uppercase tracking-wide">Low Payment Coverage</div>
+                           <div className="text-sm text-orange-600">Historical average of {((customer?.payment_to_bill_ratio ?? 0) * 100).toFixed(2)}% coverage</div>
+                         </div>
+                       </div>
+                     )}
+                     {(customer?.credit_utilization ?? 0) > 0.8 && (
+                       <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                         <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                         <div>
+                           <div className="text-xs font-bold text-indigo-700 uppercase tracking-wide">Elevated Credit Utilization</div>
+                           <div className="text-sm text-indigo-600">{((customer?.credit_utilization ?? 0) * 100).toFixed(2)}% of available credit used</div>
+                         </div>
+                       </div>
+                     )}
+                     {caseData.risk_level !== 'HIGH' && (customer?.recent_payment_delay ?? 0) === 0 && (customer?.payment_to_bill_ratio ?? 0) >= 0.3 && (customer?.credit_utilization ?? 0) <= 0.8 && (
+                       <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                         <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                         <div>
+                           <div className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Stable Profile</div>
+                           <div className="text-sm text-emerald-600">No immediate critical risk factors detected.</div>
+                         </div>
+                       </div>
+                     )}
+                   </div>
+                 </div>
+               </div>
+
+               {/* 5. RISK SUMMARY */}
+               <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
+                 <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wider mb-2">Risk Summary</h3>
+                 <p className="text-indigo-800 leading-relaxed">
+                   {caseData.risk_level === 'HIGH' ? "High payment risk driven by " : caseData.risk_level === 'MEDIUM' ? "Moderate payment risk driven by " : "Low payment risk with "}
+                   {[
+                     caseData.failure_probability > 0.5 ? "a high predicted failure probability" : null,
+                     (customer?.recent_payment_delay ?? 0) > 0 ? "recent payment delays" : null,
+                     (customer?.payment_to_bill_ratio ?? 0) < 0.3 ? "low payment coverage" : null,
+                     (customer?.credit_utilization ?? 0) > 0.8 ? "elevated credit utilization" : null,
+                   ].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1") || "stable payment patterns."}
+                   {caseData.risk_level === 'HIGH' || caseData.risk_level === 'MEDIUM' ? "." : ""}
+                 </p>
+               </div>
+
+               {/* 6. MODEL OUTPUT NOTICE & HISTORICAL RECORD */}
+               <div className="pt-4 border-t border-gray-200 mt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400">
+                 <p>Risk assessment is based on the existing ML model outputs and persisted customer payment data.</p>
+                 <p className="mt-2 sm:mt-0">Risk outputs have been persisted and apply to this historical record.</p>
+               </div>
+             </div>
            )}
         </div>
       </div>
