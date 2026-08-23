@@ -616,3 +616,51 @@ def get_analytics_metrics(db: Session = Depends(get_db)):
         "failed_cases": failed_cases,
         "escalated_cases": escalated_cases
     }
+
+from api.services.recovery_orchestrator import evaluate_recovery_case, orchestrate_active_cases
+
+@app.post("/recovery/cases/{case_id}/orchestrate")
+def api_orchestrate_single_case(case_id: int, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    customer = db.query(Customer).filter(Customer.customer_id == case.customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+        
+    try:
+        result = evaluate_recovery_case(case, customer, db)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/recovery/orchestrate")
+def api_orchestrate_all_cases(db: Session = Depends(get_db)):
+    try:
+        stats = orchestrate_active_cases(db)
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+from api.services.recovery_action_planner import plan_recovery_action, plan_pending_recovery_actions
+
+@app.post("/recovery/cases/{case_id}/plan-action")
+def api_plan_action_single_case(case_id: int, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    try:
+        action = plan_recovery_action(case, case.ai_decision, db)
+        return {
+            "success": True,
+            "case_id": case.id,
+            "action": action
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

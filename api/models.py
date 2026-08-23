@@ -116,3 +116,22 @@ class RecoveryCase(Base):
     customer = relationship("Customer", back_populates="cases")
 
 MAX_RECOVERY_ATTEMPTS = 5
+
+class RecoveryAction(Base):
+    __tablename__ = "recovery_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("recovery_cases.id"), index=True)
+    action_type = Column(String)
+    decision = Column(String)
+    channel = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    status = Column(String, default="PENDING")
+    scheduled_for = Column(DateTime(timezone=True), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    case = relationship("RecoveryCase", back_populates="actions")
+
+RecoveryCase.actions = relationship("RecoveryAction", back_populates="case", cascade="all, delete-orphan")
