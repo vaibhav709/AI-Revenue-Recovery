@@ -1,3 +1,4 @@
+import { formatINR } from '../utils/formatters';
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getRecoveryCase, completeRecoveryCase, updateRecoveryOutcome, recordRecoveryAttempt, generateAiAction } from '../services/api';
@@ -97,7 +98,7 @@ export default function RecoveryCaseDetail() {
       setConfirmMessage(
         <>
           Amount not fully recovered.<br />
-          <span className="font-semibold text-gray-900">₹{diff.toLocaleString()}</span> is still outstanding. Are you sure you want to mark this recovery case as completed?
+          <span className="font-semibold text-gray-900">{formatINR(diff)}</span> is still outstanding. Are you sure you want to mark this recovery case as completed?
         </>
       );
       setShowConfirmModal(true);
@@ -120,7 +121,7 @@ export default function RecoveryCaseDetail() {
   if (outcomeForm.amount_recovered < 0) {
     outcomeError = "Error: Recovered amount cannot be negative.";
   } else if (outcomeForm.amount_recovered > (caseData.amount_at_risk || 0)) {
-    outcomeError = `Error: Recovered amount cannot be greater than the amount at risk (₹${(caseData.amount_at_risk || 0).toLocaleString()}).`;
+    outcomeError = `Error: Recovered amount cannot be greater than the amount at risk (${formatINR(caseData.amount_at_risk)}).`;
   }
 
   return (
@@ -205,11 +206,11 @@ export default function RecoveryCaseDetail() {
                        <div className="space-y-4">
                           <div className="flex justify-between items-center py-2 border-b border-gray-100">
                              <span className="text-gray-600">Amount at Risk:</span>
-                             <span className="font-semibold text-gray-900">₹{(caseData.amount_at_risk || 0).toLocaleString()}</span>
+                             <span className="font-semibold text-gray-900">{formatINR(caseData.amount_at_risk)}</span>
                           </div>
                           <div className="flex justify-between items-center py-2 border-b border-gray-100">
                              <span className="text-gray-600">Amount Recovered:</span>
-                             <span className="font-semibold text-gray-900">₹{(caseData.amount_recovered || 0).toLocaleString()}</span>
+                             <span className="font-semibold text-gray-900">{formatINR(caseData.amount_recovered)}</span>
                           </div>
                           <div className="flex justify-between items-center py-2 border-b border-gray-100">
                              <span className="text-gray-600">Recovery Status:</span>
@@ -398,15 +399,15 @@ export default function RecoveryCaseDetail() {
                              </div>
                              <div>
                                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Amount at Risk</div>
-                               <div className="font-medium text-gray-900">₹{atRisk.toLocaleString()}</div>
+                               <div className="font-medium text-gray-900">{formatINR(atRisk)}</div>
                              </div>
                              <div>
                                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Amount Recovered</div>
-                               <div className="font-medium text-emerald-600">₹{recovered.toLocaleString()}</div>
+                               <div className="font-medium text-emerald-600">{formatINR(recovered)}</div>
                              </div>
                              <div>
                                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Remaining</div>
-                               <div className="font-medium text-red-600">₹{diff.toLocaleString()}</div>
+                               <div className="font-medium text-red-600">{formatINR(diff)}</div>
                              </div>
                            </div>
                            
@@ -628,11 +629,11 @@ export default function RecoveryCaseDetail() {
                    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 shadow-sm">
                      <div className="flex justify-between items-center pb-4 border-b border-gray-100">
                        <span className="text-gray-600 font-medium">Recent Bill</span>
-                       <span className="font-bold text-gray-900">₹{(customer?.recent_bill_amount || 0).toLocaleString()}</span>
+                       <span className="font-bold text-gray-900">{formatINR(customer?.recent_bill_amount)}</span>
                      </div>
                      <div className="flex justify-between items-center pb-4 border-b border-gray-100">
                        <span className="text-gray-600 font-medium">Recent Payment</span>
-                       <span className="font-bold text-gray-900">₹{(customer?.recent_payment_amount || 0).toLocaleString()}</span>
+                       <span className="font-bold text-gray-900">{formatINR(customer?.recent_payment_amount)}</span>
                      </div>
                      <div className="flex justify-between items-center pb-4 border-b border-gray-100">
                        <span className="text-gray-600 font-medium">Recent Payment Ratio</span>

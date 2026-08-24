@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { formatINR } from '../utils/formatters';
 import { getCustomer } from '../services/api';
 import { CustomerDetailResponse } from '../types';
 import clsx from 'clsx';
@@ -50,7 +51,7 @@ export default function CustomerDetail() {
         </div>
         <div className="text-right">
            <div className="text-sm text-gray-500 mb-1">Credit Limit</div>
-           <div className="text-xl font-bold text-gray-900">${customer.credit_limit?.toLocaleString()}</div>
+           <div className="text-xl font-bold text-gray-900">{formatINR(customer.credit_limit)}</div>
         </div>
       </div>
 

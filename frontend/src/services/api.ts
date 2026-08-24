@@ -73,3 +73,13 @@ export const analyzeBatch = async (): Promise<BatchAnalysisResponse> => {
   const response = await api.post<BatchAnalysisResponse>('/recovery/analyze-batch');
   return response.data;
 };
+
+export const getPortfolioAnalytics = async (): Promise<any> => {
+  const response = await api.get<any>('/recovery/analytics/portfolio');
+  return response.data;
+};
+
+export const generatePortfolioInsights = async (): Promise<any> => {
+  const response = await api.post<any>('/recovery/analytics/portfolio/ai-insights');
+  return response.data;
+};

@@ -1,3 +1,10 @@
+
+import asyncio
+import os
+from api.services.scheduled_recovery_processor import process_scheduled_recovery_actions
+from api.services.portfolio_analytics import get_portfolio_analytics
+from api.services.portfolio_ai_insights import generate_portfolio_insights
+from api.database import SessionLocal
 """FastAPI integration for the payment recovery pipeline."""
 import traceback
 from json import JSONDecodeError
@@ -831,3 +838,61 @@ def api_run_autonomous_recovery(case_id: int, max_cycles: int = 1, db: Session =
         "final_attempt_count": case.attempt_count,
         "actions": actions_list
     }
+
+
+@app.post("/recovery/actions/process-scheduled")
+def api_process_scheduled_actions(batch_size: int = 10, db: Session = Depends(get_db)):
+    try:
+        return process_scheduled_recovery_actions(db, batch_size=batch_size)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+_scheduler_task = None
+_scheduler_stop_event = asyncio.Event()
+
+async def _scheduled_processor_loop():
+    interval = int(os.environ.get("RECOVERY_SCHEDULER_INTERVAL_SECONDS", 60))
+    while not _scheduler_stop_event.is_set():
+        try:
+            db = SessionLocal()
+            try:
+                process_scheduled_recovery_actions(db, batch_size=10)
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"Scheduled processor error: {e}")
+            
+        try:
+            await asyncio.wait_for(_scheduler_stop_event.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass # Normal timeout, loop continues
+
+@app.on_event("startup")
+async def startup_scheduler():
+    global _scheduler_task
+    if os.environ.get("RECOVERY_SCHEDULER_ENABLED", "false").lower() == "true":
+        _scheduler_stop_event.clear()
+        _scheduler_task = asyncio.create_task(_scheduled_processor_loop())
+
+@app.on_event("shutdown")
+async def shutdown_scheduler():
+    global _scheduler_task
+    if _scheduler_task:
+        _scheduler_stop_event.set()
+        await _scheduler_task
+
+
+@app.get("/recovery/analytics/portfolio")
+def api_get_portfolio_analytics(db: Session = Depends(get_db)):
+    try:
+        return get_portfolio_analytics(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/recovery/analytics/portfolio/ai-insights")
+def api_generate_portfolio_insights(db: Session = Depends(get_db)):
+    try:
+        return generate_portfolio_insights(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

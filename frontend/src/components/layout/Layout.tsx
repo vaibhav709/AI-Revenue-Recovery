@@ -1,3 +1,4 @@
+import { formatINR } from '../../utils/formatters';
 import { useState, useRef, useEffect } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { 
@@ -71,7 +72,7 @@ export default function Layout() {
             type: 'customer',
             id: c.customer_id.toString(),
             label: c.nickname ? `Customer ${c.customer_id} (${c.nickname})` : `Customer ${c.customer_id}`,
-            sublabel: `Risk: ${c.risk} • Limit: $${c.credit_limit}`,
+            sublabel: `Risk: ${c.risk} • Limit: ${formatINR(c.credit_limit)}`,
             path: `/customers/${c.customer_id}`
           });
         });

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, MoreHorizontal, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
+import { formatINR } from '../utils/formatters';
 import { getCustomers } from '../services/api';
 import { CustomerListItem } from '../types';
 
@@ -90,7 +91,7 @@ export default function Customers() {
                     <div className="font-bold text-gray-900">{c.customer_id}</div>
                     {c.nickname && <div className="text-xs text-gray-500 mt-0.5">{c.nickname}</div>}
                   </td>
-                  <td className="px-6 py-4 font-medium text-gray-900">${c.credit_limit?.toLocaleString() ?? 0}</td>
+                  <td className="px-6 py-4 font-medium text-gray-900">{formatINR(c.credit_limit)}</td>
                   <td className="px-6 py-4">
                     <span className={clsx(
                       "px-2 py-0.5 rounded text-xs font-bold border uppercase",

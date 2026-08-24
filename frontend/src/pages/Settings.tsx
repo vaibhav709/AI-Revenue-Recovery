@@ -10,7 +10,7 @@ export default function Settings() {
     companyName: 'Fintech Solutions Inc.',
     adminEmail: 'alex@fintech.com',
     timezone: 'UTC',
-    defaultCurrency: 'USD'
+    defaultCurrency: 'INR'
   });
 
   const [policy, setPolicy] = useState({
@@ -92,7 +92,7 @@ export default function Settings() {
                          <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Default Currency</label>
                             <select value={general.defaultCurrency} onChange={e => setGeneral({...general, defaultCurrency: e.target.value})} className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
-                               <option>USD</option>
+                               <option>INR</option>
                                <option>EUR</option>
                                <option>GBP</option>
                             </select>

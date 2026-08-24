@@ -4,6 +4,7 @@ import {
   FileText, Search, RefreshCcw, Edit3, ArrowRight, Activity, Calendar
 } from 'lucide-react';
 import clsx from 'clsx';
+import { formatINR } from '../utils/formatters';
 import { analyzeCustomer } from '../services/api';
 import { RecoveryAnalysisRequest, FinalRecoveryPlan } from '../types';
 import { 
@@ -290,7 +291,7 @@ export default function AnalyzeCustomer() {
                          </div>
                          <div className="flex justify-between items-center p-4 bg-gray-50 border border-gray-100 rounded-lg">
                             <span className="text-gray-700 font-medium">Average payment</span>
-                            <span className="font-bold text-gray-900">${((formData.payment_amount_1 + formData.payment_amount_2 + formData.payment_amount_3 + formData.payment_amount_4 + formData.payment_amount_5 + formData.payment_amount_6) / 6).toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+                            <span className="font-bold text-gray-900">{formatINR((formData.payment_amount_1 + formData.payment_amount_2 + formData.payment_amount_3 + formData.payment_amount_4 + formData.payment_amount_5 + formData.payment_amount_6) / 6)}</span>
                          </div>
                       </div>
                    </div>
@@ -302,8 +303,8 @@ export default function AnalyzeCustomer() {
                             <BarChart data={paymentBehaviorData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
                                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
-                               <YAxis tickFormatter={(val) => `$${val/1000}k`} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
-                               <RechartsTooltip cursor={{fill: '#f9fafb'}} formatter={(value: number) => `$${value.toLocaleString()}`} />
+                               <YAxis tickFormatter={(val) => `₹${val/1000}k`} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
+                               <RechartsTooltip cursor={{fill: '#f9fafb'}} formatter={(value: number) => `{formatINR(value)}`} />
                                <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
                                <Bar dataKey="bill" name="Bill Amount" fill="#e0e7ff" radius={[4, 4, 0, 0]} />
                                <Bar dataKey="payment" name="Payment" fill="#4f46e5" radius={[4, 4, 0, 0]} />
@@ -500,7 +501,7 @@ export default function AnalyzeCustomer() {
               <input type="text" name="nickname" value={formData.nickname || ''} onChange={handleChange} placeholder="e.g. Acme Corp" className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Credit Limit <span className="text-red-500">*</span> <span className="text-gray-400 font-normal">(USD)</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Credit Limit <span className="text-red-500">*</span> <span className="text-gray-400 font-normal">(INR)</span></label>
               <input type="number" name="credit_limit" value={formData.credit_limit} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" />
             </div>
             <div>
