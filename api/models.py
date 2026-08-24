@@ -135,3 +135,21 @@ class RecoveryAction(Base):
     case = relationship("RecoveryCase", back_populates="actions")
 
 RecoveryCase.actions = relationship("RecoveryAction", back_populates="case", cascade="all, delete-orphan")
+
+class ExecutionAttempt(Base):
+    __tablename__ = "execution_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action_id = Column(Integer, ForeignKey("recovery_actions.id"), index=True)
+    attempted_at = Column(DateTime(timezone=True), server_default=func.now())
+    execution_status = Column(String)  # SUCCESS, FAILED, BLOCKED, SKIPPED
+    result = Column(String, nullable=True)
+    error = Column(String, nullable=True)
+    channel = Column(String, nullable=True)
+    provider = Column(String, nullable=True)
+    recipient = Column(String, nullable=True)
+    metadata_payload = Column(String, nullable=True)
+
+    action = relationship("RecoveryAction", back_populates="executions")
+
+RecoveryAction.executions = relationship("ExecutionAttempt", back_populates="action", cascade="all, delete-orphan")

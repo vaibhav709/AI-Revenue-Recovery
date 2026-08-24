@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, String
 
 from api.schemas import RecoveryAnalysisRequest
+from api.services.recovery_attempt import process_recovery_attempt
 from api.database import engine, Base, get_db
-from api.models import Customer, RecoveryCase, MAX_RECOVERY_ATTEMPTS
+from api.models import Customer, RecoveryCase, RecoveryAction, ExecutionAttempt, MAX_RECOVERY_ATTEMPTS
 from crew.pipeline import CrewAIWorkflowError, run_recovery_pipeline
 from crew.rules.recovery_schema import FinalRecoveryPlan
 import statistics
@@ -469,80 +470,7 @@ def record_attempt(case_id: int, db: Session = Depends(get_db)):
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
         
-    # RULE 1: FULL RECOVERY
-    if case.amount_recovered >= case.amount_at_risk :
-        return {
-            "decision": "STOP",
-            "attempt_count": case.attempt_count,
-            "max_attempts": case.max_attempts,
-            "message": "Recovery target has already been fully recovered."
-        }
-        
-    # RULE 2: CASE COMPLETED
-    if case.status == "Completed":
-        return {
-            "decision": "STOP",
-            "attempt_count": case.attempt_count,
-            "max_attempts": case.max_attempts,
-            "message": "Case is already completed."
-        }
-        
-    # RULE 3: CASE ESCALATED
-    if case.status == "Escalated":
-        return {
-            "decision": "STOP",
-            "attempt_count": case.attempt_count,
-            "max_attempts": case.max_attempts,
-            "message": "Case is already escalated."
-        }
-        
-    # RULE 4: MAXIMUM ATTEMPTS
-    if case.attempt_count >= case.max_attempts:
-        if case.amount_recovered < case.amount_at_risk:
-            case.status = "Escalated"
-            case.recovery_status = "Escalated"
-            case.escalation_reason = "Maximum recovery attempts reached without full recovery."
-            db.commit()
-            return {
-                "decision": "ESCALATE",
-                "attempt_count": case.attempt_count,
-                "max_attempts": case.max_attempts,
-                "message": "Maximum recovery attempts reached. Further recovery attempts have been stopped.",
-                "escalation_reason": case.escalation_reason
-            }
-        else:
-            return {
-                "decision": "STOP",
-                "attempt_count": case.attempt_count,
-                "max_attempts": case.max_attempts,
-                "message": "Maximum recovery attempts reached, but recovery is complete."
-            }
-            
-    # RULE 5: CONTINUE
-    case.attempt_count += 1
-    case.last_attempt_at = datetime.datetime.utcnow()
-    
-    # Check boundaries immediately after incrementing
-    if case.attempt_count >= case.max_attempts and case.amount_recovered < case.amount_at_risk:
-        case.status = "Escalated"
-        case.recovery_status = "Escalated"
-        case.escalation_reason = "Maximum recovery attempts reached without full recovery."
-        db.commit()
-        return {
-            "decision": "ESCALATE",
-            "attempt_count": case.attempt_count,
-            "max_attempts": case.max_attempts,
-            "message": "Maximum recovery attempts reached. Further recovery attempts have been stopped.",
-            "escalation_reason": case.escalation_reason
-        }
-    
-    db.commit()
-    return {
-        "decision": "CONTINUE",
-        "attempt_count": case.attempt_count,
-        "max_attempts": case.max_attempts,
-        "message": "Recovery attempt recorded."
-    }
+    return process_recovery_attempt(case, db, commit=True)
 
 @app.put("/recovery/cases/{case_id}/complete")
 def complete_case(case_id: int, db: Session = Depends(get_db)):
@@ -664,3 +592,45 @@ def api_plan_action_single_case(case_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from api.services.action_executor import execute_recovery_action
+
+@app.post("/recovery/actions/{action_id}/execute")
+def api_execute_action(action_id: int, db: Session = Depends(get_db)):
+    action = db.query(RecoveryAction).filter(RecoveryAction.id == action_id).first()
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+        
+    result = execute_recovery_action(action, db)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result)
+    return result
+
+
+@app.get("/recovery/actions/{action_id}/executions")
+def api_get_action_executions(action_id: int, db: Session = Depends(get_db)):
+    action = db.query(RecoveryAction).filter(RecoveryAction.id == action_id).first()
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+        
+    executions = db.query(ExecutionAttempt).filter(ExecutionAttempt.action_id == action_id).order_by(ExecutionAttempt.attempted_at.asc()).all()
+    
+    result = []
+    import json
+    for ex in executions:
+        result.append({
+            "id": ex.id,
+            "attempted_at": ex.attempted_at.isoformat() if ex.attempted_at else None,
+            "execution_status": ex.execution_status,
+            "result": ex.result,
+            "error": ex.error,
+            "channel": ex.channel,
+            "provider": ex.provider,
+            "recipient": ex.recipient,
+            "metadata": json.loads(ex.metadata_payload) if ex.metadata_payload else None
+        })
+        
+    return {
+        "action_id": action_id,
+        "executions": result
+    }
