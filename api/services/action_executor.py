@@ -3,7 +3,8 @@ import json
 import resend
 from sqlalchemy.orm import Session
 from api.services.recovery_attempt import process_recovery_attempt
-from api.models import RecoveryAction, RecoveryCase, ExecutionAttempt
+from api.models import RecoveryAction, RecoveryCase, ExecutionAttempt, Customer
+from api.services.recovery_email_service import prepare_recovery_email
 
 def _record_attempt(db, action_id, status, error=None, result=None, channel=None, provider=None, recipient=None, meta=None, should_commit=True):
     attempt = ExecutionAttempt(
@@ -64,12 +65,11 @@ def execute_recovery_action(action: RecoveryAction, db: Session) -> dict:
     if not test_email:
         return finish(False, action.status, error="RECOVERY_TEST_EMAIL is not configured.", exec_status="BLOCKED")
     
-    # Message fallback
-    message = case.ai_customer_message
-    if not message or message.strip() == "":
-        message = "Hello, this is a test recovery communication from the AI Revenue Recovery system. This message was generated as part of a controlled sandbox execution."
-        
-    subject = f"Recovery Action Test — Customer {case.customer_id}"
+    customer = db.query(Customer).filter(Customer.customer_id == case.customer_id).first()
+    email_data = prepare_recovery_email(case, customer)
+    
+    subject = email_data["subject"]
+    message = email_data["body"]
     
     try:
         resend.api_key = api_key

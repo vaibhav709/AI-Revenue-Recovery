@@ -1,10 +1,10 @@
 import { formatINR } from '../utils/formatters';
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getRecoveryCase, completeRecoveryCase, updateRecoveryOutcome, recordRecoveryAttempt, generateAiAction } from '../services/api';
+import { prepareRecoveryEmail, executeRecoveryAction, getRecoveryCase, completeRecoveryCase, updateRecoveryOutcome, recordRecoveryAttempt, generateAiAction } from '../services/api';
 import { RecoveryCaseDetailResponse } from '../types';
 import clsx from 'clsx';
-import { ChevronLeft, FileText, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function RecoveryCaseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +17,42 @@ export default function RecoveryCaseDetail() {
   const [confirmMessage, setConfirmMessage] = useState<string | React.ReactNode>("");
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  
+  const [preparedEmail, setPreparedEmail] = useState<any>(null);
+  const [isPreparingEmail, setIsPreparingEmail] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSendStatus, setEmailSendStatus] = useState<'IDLE'|'SUCCESS'|'FAILED'>('IDLE');
+  
+  const handlePrepareEmail = async () => {
+    if (!data?.case?.id) return;
+    setIsPreparingEmail(true);
+    try {
+      const res = await prepareRecoveryEmail(data.case.id);
+      setPreparedEmail(res);
+      setEmailSendStatus('IDLE');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsPreparingEmail(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!preparedEmail?.action_id) return;
+    setIsSendingEmail(true);
+    setEmailSendStatus('IDLE');
+    try {
+      await executeRecoveryAction(preparedEmail.action_id);
+      setEmailSendStatus('SUCCESS');
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setEmailSendStatus('FAILED');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -445,97 +481,93 @@ export default function RecoveryCaseDetail() {
            )}
            {activeTab === 'Communication' && (
       <div className="space-y-6">
-         <div className="mb-4 flex items-center justify-between">
+         <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Communication</h2>
+              <h2 className="text-lg font-semibold text-gray-900">AI Recovery Communication</h2>
               <p className="text-sm text-gray-500">
-                 {caseData.ai_customer_message ? "AI-generated recovery communication" : "Recommended communication draft"}
+                 Controlled intent-driven communication preparation.
               </p>
             </div>
+            <button 
+              onClick={handlePrepareEmail}
+              disabled={isPreparingEmail}
+              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isPreparingEmail ? 'Preparing...' : 'Prepare Communication'}
+            </button>
          </div>
 
-         {caseData.ai_customer_message ? (
-           <>
-             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Channel</div>
-                   <div className="font-medium text-gray-900">{caseData.ai_communication_channel || caseData.communication_channel}</div>
-                </div>
-                <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Follow up</div>
-                   <div className="font-medium text-gray-900">{caseData.ai_follow_up_days || caseData.follow_up_days} days</div>
-                </div>
-                <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Decision</div>
-                   <div className="font-medium text-indigo-700">{caseData.ai_decision}</div>
-                </div>
-                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 shadow-sm">
-                   <div className="text-xs font-semibold text-indigo-800/70 uppercase tracking-wider mb-1">Status</div>
-                   <div className="font-medium text-indigo-900">Draft — Not Sent</div>
-                </div>
-             </div>
+         {emailSendStatus === 'SUCCESS' && (
+           <div className="bg-emerald-50 text-emerald-700 p-4 rounded-lg flex items-center gap-2 font-medium border border-emerald-200">
+             <CheckCircle2 className="w-5 h-5" /> ✓ Email sent successfully (Status: EXECUTED, Provider: Resend)
+           </div>
+         )}
+         {emailSendStatus === 'FAILED' && (
+           <div className="bg-red-50 text-red-700 p-4 rounded-lg flex items-center gap-2 font-medium border border-red-200">
+             <AlertCircle className="w-5 h-5" /> Email could not be sent. Pending action preserved.
+           </div>
+         )}
 
-             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                   <div className="font-medium text-gray-700 flex items-center gap-2">
-                     <FileText className="w-4 h-4 text-gray-500"/>
-                     {caseData.ai_communication_channel || caseData.communication_channel}
+         {preparedEmail ? (
+           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Intent</div>
+                      <div className="font-medium text-indigo-700">{preparedEmail.communication.intent}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">To</div>
+                      <div className="font-medium text-gray-900">{preparedEmail.communication.recipient}</div>
+                    </div>
+                 </div>
+              </div>
+              
+              <div className="p-8">
+                 <div className="mb-6 pb-6 border-b border-gray-100">
+                   <div className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">Subject</div>
+                   <div className="text-lg font-medium text-gray-900">{preparedEmail.communication.subject}</div>
+                 </div>
+                 
+                 <div>
+                   <div className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Message</div>
+                   <div className="text-gray-800 whitespace-pre-wrap leading-relaxed">
+                      {preparedEmail.communication.body}
                    </div>
-                   <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 shadow-sm">
-                     DRAFT — NOT SENT
-                   </span>
-                </div>
-                
-                <div className="p-8">
-                   <div className="mb-6 pb-6 border-b border-gray-100">
-                     <div className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">Subject</div>
-                     <div className="text-lg font-medium text-gray-900">Action required regarding your account</div>
-                   </div>
-                   
-                   <div>
-                     <div className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Message</div>
-                     <div className="text-gray-800 whitespace-pre-wrap leading-relaxed">
-                        {caseData.ai_customer_message}
-                     </div>
-                   </div>
-                </div>
-                
-                <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex justify-between items-center text-xs text-gray-500">
-                   <span>Generated by GPT-5.6 Luna • Draft — Not Sent</span>
-                </div>
-             </div>
-           </>
+                 </div>
+              </div>
+              
+              <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-between items-center">
+                 <div className="text-sm text-gray-500">
+                   Action Status: {preparedEmail.action?.status || 'No executable action (blocked by safety rules)'}
+                 </div>
+                 <button 
+                   onClick={handleSendEmail}
+                   disabled={
+                     isSendingEmail || 
+                     !preparedEmail.action_id || 
+                     preparedEmail.action?.status !== 'PENDING'
+                   }
+                   className="px-5 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                   {isSendingEmail ? 'Sending...' : 'Send Email'}
+                 </button>
+              </div>
+           </div>
          ) : (
-           <div className="space-y-6">
-             <div className="bg-gray-50 rounded-xl border border-gray-200 p-10 text-center flex flex-col items-center">
-                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center border border-gray-200 shadow-sm mb-4">
-                  <FileText className="w-6 h-6 text-gray-400" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No AI communication generated</h3>
-                <p className="text-gray-500 max-w-sm mb-6">
-                  Generate an AI recommendation in the Recovery Plan tab to create the recommended customer communication.
-                </p>
-                <button 
-                  onClick={() => setActiveTab('Recovery Plan')}
-                  className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
-                >
-                  Go to Recovery Plan
-                </button>
-             </div>
-             
-             {caseData.customer_message && (
-               <div className="mt-8">
-                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Existing Draft</h3>
-                  <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm whitespace-pre-wrap text-gray-700 leading-relaxed text-sm">
-                    {caseData.customer_message}
-                  </div>
-               </div>
-             )}
+           <div className="bg-gray-50 rounded-xl border border-gray-200 p-10 text-center flex flex-col items-center">
+              <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center border border-gray-200 shadow-sm mb-4">
+                <FileText className="w-6 h-6 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No communication prepared</h3>
+              <p className="text-gray-500 max-w-sm mb-6">
+                Click the button above to prepare the communication intent and email context based on current case status.
+              </p>
            </div>
          )}
       </div>
     )}
-           {activeTab === 'Risk Analysis' && (
+    {activeTab === 'Risk Analysis' && (
              <div className="space-y-8">
                {/* 1. OVERALL RISK CARD */}
                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">

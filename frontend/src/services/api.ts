@@ -83,3 +83,13 @@ export const generatePortfolioInsights = async (): Promise<any> => {
   const response = await api.post<any>('/recovery/analytics/portfolio/ai-insights');
   return response.data;
 };
+
+export const prepareRecoveryEmail = async (id: number): Promise<any> => {
+  const response = await api.get<any>(`/recovery/cases/${id}/prepare-email`);
+  return response.data;
+};
+
+export const executeRecoveryAction = async (actionId: number): Promise<any> => {
+  const response = await api.post<any>(`/recovery/actions/${actionId}/execute`);
+  return response.data;
+};

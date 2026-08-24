@@ -896,3 +896,58 @@ def api_generate_portfolio_insights(db: Session = Depends(get_db)):
         return generate_portfolio_insights(db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+from api.services.recovery_email_service import prepare_recovery_email
+
+@app.get("/recovery/cases/{case_id}/prepare-email")
+def api_prepare_email(case_id: int, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    # Get the latest pending email action if any
+    action = db.query(RecoveryAction).filter(
+        RecoveryAction.case_id == case_id,
+        RecoveryAction.status == "PENDING",
+        RecoveryAction.channel == "EMAIL",
+        RecoveryAction.action_type == "RECOVERY_CONTACT"
+    ).order_by(RecoveryAction.id.desc()).first()
+    
+    if not action:
+        # Check safety boundaries
+        is_completed = case.status == "Completed"
+        is_escalated = case.status == "Escalated"
+        is_fully_recovered = case.amount_recovered is not None and case.amount_at_risk is not None and case.amount_recovered >= case.amount_at_risk and case.amount_at_risk > 0
+        max_attempts_reached = case.attempt_count is not None and case.max_attempts is not None and case.attempt_count >= case.max_attempts
+        
+        if not (is_completed or is_escalated or is_fully_recovered or max_attempts_reached):
+            action = RecoveryAction(
+                case_id=case_id,
+                action_type="RECOVERY_CONTACT",
+                channel="EMAIL",
+                status="PENDING"
+            )
+            db.add(action)
+            db.commit()
+            db.refresh(action)
+    
+    customer = db.query(Customer).filter(Customer.customer_id == case.customer_id).first()
+    communication = prepare_recovery_email(case, customer)
+    
+    action_data = None
+    if action:
+        action_data = {
+            "id": action.id,
+            "action_type": action.action_type,
+            "channel": action.channel,
+            "status": action.status
+        }
+    
+    return {
+        "success": True,
+        "case_id": case_id,
+        "action_id": action.id if action else None,
+        "action": action_data,
+        "communication": communication
+    }
