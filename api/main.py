@@ -9,6 +9,7 @@ from sqlalchemy import func, String
 
 from api.schemas import RecoveryAnalysisRequest
 from api.services.recovery_attempt import process_recovery_attempt
+from api.services.recovery_orchestrator import evaluate_recovery_case
 from api.database import engine, Base, get_db
 from api.models import Customer, RecoveryCase, RecoveryAction, ExecutionAttempt, MAX_RECOVERY_ATTEMPTS
 from crew.pipeline import CrewAIWorkflowError, run_recovery_pipeline
@@ -633,4 +634,200 @@ def api_get_action_executions(action_id: int, db: Session = Depends(get_db)):
     return {
         "action_id": action_id,
         "executions": result
+    }
+
+
+@app.post("/recovery/cases/{case_id}/run-cycle")
+def api_run_recovery_cycle(case_id: int, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    customer = case.customer
+    if not customer:
+        raise HTTPException(status_code=400, detail="Customer not found for case")
+        
+    # 1. Orchestration
+    try:
+        orchestration_result = evaluate_recovery_case(case, customer, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Orchestration failed: {str(e)}")
+        
+    decision = orchestration_result.get("decision")
+    source = orchestration_result.get("source", "unknown")
+    
+    # 2. Planning
+    try:
+        action_dict = plan_recovery_action(case, decision, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Action planning failed: {str(e)}")
+        
+    action_id = action_dict["id"]
+    action_obj = db.query(RecoveryAction).filter(RecoveryAction.id == action_id).first()
+    
+    # 3. Execution
+    initial_attempt_count = case.attempt_count
+    try:
+        exec_response = execute_recovery_action(action_obj, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
+        
+    # 4. Result collection
+    db.refresh(case)
+    attempt_recorded = case.attempt_count > initial_attempt_count
+    
+    attempt = db.query(ExecutionAttempt).filter_by(action_id=action_id).order_by(ExecutionAttempt.id.desc()).first()
+    exec_status = attempt.execution_status if attempt else "SKIPPED"
+    
+    return {
+        "success": True,
+        "case_id": case.id,
+        "orchestration": {
+            "decision": decision,
+            "source": source
+        },
+        "action": {
+            "id": action_obj.id,
+            "action_type": action_obj.action_type,
+            "decision": action_obj.decision,
+            "channel": action_obj.channel,
+            "status": action_obj.status
+        },
+        "execution": {
+            "status": exec_status,
+            "provider": exec_response.get("provider") if exec_status != "SKIPPED" else None
+        },
+        "recovery_attempt": {
+            "recorded": attempt_recorded,
+            "attempt_count": case.attempt_count
+        }
+    }
+
+
+@app.post("/recovery/cases/{case_id}/reevaluate")
+def api_reevaluate_recovery_case(case_id: int, db: Session = Depends(get_db)):
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    customer = case.customer
+    if not customer:
+        raise HTTPException(status_code=400, detail="Customer not found for case")
+        
+    try:
+        res = evaluate_recovery_case(case, customer, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Re-evaluation failed: {str(e)}")
+        
+    return {
+        "success": True,
+        "case_id": case.id,
+        "decision": res.get("decision"),
+        "source": res.get("source"),
+        "reason": res.get("reason"),
+        "recommended_action": res.get("recommended_action"),
+        "confidence": res.get("confidence"),
+        "action_planned": False,
+        "action_executed": False
+    }
+
+
+@app.post("/recovery/cases/{case_id}/run-autonomous")
+def api_run_autonomous_recovery(case_id: int, max_cycles: int = 1, db: Session = Depends(get_db)):
+    # 1. Clamp max_cycles safely between 1 and 5
+    max_cycles = max(1, min(max_cycles, 5))
+    
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+        
+    customer = case.customer
+    if not customer:
+        raise HTTPException(status_code=400, detail="Customer not found for case")
+        
+    cycles_completed = 0
+    stop_reason = "MAX_CYCLES_REACHED"
+    final_decision = None
+    actions_list = []
+    
+    while cycles_completed < max_cycles:
+        # Re-fetch case state continuously
+        db.refresh(case)
+        
+        # Phase 1: Orchestrate (includes all deterministic constraints internally)
+        try:
+            orch = evaluate_recovery_case(case, customer, db)
+        except Exception as e:
+            stop_reason = f"ORCHESTRATION_ERROR: {str(e)}"
+            break
+            
+        decision = orch.get("decision")
+        source = orch.get("source")
+        final_decision = decision
+        
+        # Phase 2: Plan
+        try:
+            action_dict = plan_recovery_action(case, decision, db)
+        except Exception as e:
+            stop_reason = f"PLANNING_ERROR: {str(e)}"
+            break
+            
+        action_obj = db.query(RecoveryAction).filter(RecoveryAction.id == action_dict["id"]).first()
+        
+        # Phase 3: Execute (includes attempt persistence)
+        initial_attempts = case.attempt_count
+        try:
+            exec_response = execute_recovery_action(action_obj, db)
+        except Exception as e:
+            stop_reason = f"EXECUTION_ERROR: {str(e)}"
+            break
+            
+        db.refresh(case)
+        attempt_recorded = case.attempt_count > initial_attempts
+        attempt = db.query(ExecutionAttempt).filter_by(action_id=action_obj.id).order_by(ExecutionAttempt.id.desc()).first()
+        exec_status = attempt.execution_status if attempt else "SKIPPED"
+        
+        # Phase 4: Track
+        actions_list.append({
+            "cycle": cycles_completed + 1,
+            "decision": decision,
+            "action_id": action_obj.id,
+            "action_type": action_obj.action_type,
+            "channel": action_obj.channel,
+            "execution_status": exec_status,
+            "attempt_recorded": attempt_recorded,
+            "attempt_count": case.attempt_count
+        })
+        
+        cycles_completed += 1
+        
+        # Phase 5: Re-evaluate and determine loop termination boundaries
+        if exec_status == "FAILED":
+            stop_reason = "EXECUTION_FAILED"
+            break
+        elif exec_status == "BLOCKED":
+            stop_reason = "EXECUTION_BLOCKED"
+            break
+        elif exec_status == "SKIPPED":
+            if decision == "ESCALATE" or action_obj.action_type == "ESCALATION_REVIEW":
+                stop_reason = "ESCALATION_REQUIRED"
+            elif decision == "STOP" or action_obj.action_type == "NO_ACTION":
+                stop_reason = "DETERMINISTIC_STOP" if source == "deterministic_rule" else "ORCHESTRATOR_STOP"
+            else:
+                stop_reason = "EXECUTION_SKIPPED"
+            break
+            
+        if cycles_completed >= max_cycles:
+            stop_reason = "MAX_CYCLES_REACHED"
+            break
+            
+    return {
+        "success": True,
+        "case_id": case.id,
+        "cycles_requested": max_cycles,
+        "cycles_completed": cycles_completed,
+        "stop_reason": stop_reason,
+        "final_decision": final_decision,
+        "final_attempt_count": case.attempt_count,
+        "actions": actions_list
     }
